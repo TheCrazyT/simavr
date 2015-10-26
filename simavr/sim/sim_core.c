@@ -112,16 +112,24 @@ void crash(avr_t* avr)
 }
 #endif
 
+static inline uint16_t
+_avr_flash_read16le(
+	avr_t * avr,
+	avr_flashaddr_t addr)
+{
+	return(avr->flash[addr] | (avr->flash[addr + 1] << 8));
+}
+
 void avr_core_watch_write(avr_t *avr, uint16_t addr, uint8_t v)
 {
 	if (addr > avr->ramend) {
 		AVR_LOG(avr, LOG_ERROR, "CORE: *** Invalid write address PC=%04x SP=%04x O=%04x Address %04x=%02x out of ram\n",
-				avr->pc, _avr_sp_get(avr), avr->flash[avr->pc + 1] | (avr->flash[avr->pc]<<8), addr, v);
+				avr->pc, _avr_sp_get(avr), _avr_flash_read16le(avr, avr->pc), addr, v);
 		crash(avr);
 	}
 	if (addr < 32) {
 		AVR_LOG(avr, LOG_ERROR, "CORE: *** Invalid write address PC=%04x SP=%04x O=%04x Address %04x=%02x low registers\n",
-				avr->pc, _avr_sp_get(avr), avr->flash[avr->pc + 1] | (avr->flash[avr->pc]<<8), addr, v);
+				avr->pc, _avr_sp_get(avr), _avr_flash_read16le(avr, avr->pc), addr, v);
 		crash(avr);
 	}
 #if AVR_STACK_WATCH
@@ -146,7 +154,7 @@ uint8_t avr_core_watch_read(avr_t *avr, uint16_t addr)
 {
 	if (addr > avr->ramend) {
 		AVR_LOG(avr, LOG_ERROR, FONT_RED "CORE: *** Invalid read address PC=%04x SP=%04x O=%04x Address %04x out of ram (%04x)\n" FONT_DEFAULT,
-				avr->pc, _avr_sp_get(avr), avr->flash[avr->pc + 1] | (avr->flash[avr->pc]<<8), addr, avr->ramend);
+				avr->pc, _avr_sp_get(avr), _avr_flash_read16le(avr, avr->pc), addr, avr->ramend);
 		crash(avr);
 	}
 
@@ -187,6 +195,26 @@ static inline void _avr_set_r(avr_t * avr, uint16_t r, uint8_t v)
 		avr->data[r] = v;
 }
 
+static inline void
+_avr_set_r16le(
+	avr_t * avr,
+	uint16_t r,
+	uint16_t v)
+{
+	_avr_set_r(avr, r, v);
+	_avr_set_r(avr, r + 1, v >> 8);
+}
+
+static inline void
+_avr_set_r16le_hl(
+	avr_t * avr,
+	uint16_t r,
+	uint16_t v)
+{
+	_avr_set_r(avr, r + 1, v >> 8);
+	_avr_set_r(avr, r , v);
+}
+
 /*
  * Stack pointer access
  */
@@ -197,8 +225,7 @@ inline uint16_t _avr_sp_get(avr_t * avr)
 
 inline void _avr_sp_set(avr_t * avr, uint16_t sp)
 {
-	_avr_set_r(avr, R_SPL, sp);
-	_avr_set_r(avr, R_SPH, sp >> 8);
+	_avr_set_r16le(avr, R_SPL, sp);
 }
 
 /*
@@ -313,10 +340,10 @@ static void _avr_invalid_opcode(avr_t * avr)
 {
 #if CONFIG_SIMAVR_TRACE
 	printf( FONT_RED "*** %04x: %-25s Invalid Opcode SP=%04x O=%04x \n" FONT_DEFAULT,
-			avr->pc, avr->trace_data->codeline[avr->pc>>1]->symbol, _avr_sp_get(avr), avr->flash[avr->pc] | (avr->flash[avr->pc+1]<<8));
+			avr->pc, avr->trace_data->codeline[avr->pc>>1]->symbol, _avr_sp_get(avr), _avr_flash_read16le(avr, avr->pc));
 #else
 	AVR_LOG(avr, LOG_ERROR, FONT_RED "CORE: *** %04x: Invalid Opcode SP=%04x O=%04x \n" FONT_DEFAULT,
-			avr->pc, _avr_sp_get(avr), avr->flash[avr->pc] | (avr->flash[avr->pc+1]<<8));
+			avr->pc, _avr_sp_get(avr), _avr_flash_read16le(avr, avr->pc));
 #endif
 }
 
@@ -553,7 +580,7 @@ _avr_flags_znv0s (struct avr_t * avr, uint8_t res)
 
 static inline int _avr_is_instruction_32_bits(avr_t * avr, avr_flashaddr_t pc)
 {
-	uint16_t o = (avr->flash[pc] | (avr->flash[pc+1] << 8)) & 0xfc0f;
+	uint16_t o = _avr_flash_read16le(avr, pc) & 0xfc0f;
 	return	o == 0x9200 || // STS ! Store Direct to Data Space
 			o == 0x9000 || // LDS Load Direct from Data Space
 			o == 0x940c || // JMP Long Jump
@@ -603,7 +630,7 @@ run_one_again:
 		return 0;
 	}
 
-	uint32_t		opcode = (avr->flash[avr->pc + 1] << 8) | avr->flash[avr->pc];
+	uint32_t		opcode = _avr_flash_read16le(avr, avr->pc);
 	avr_flashaddr_t	new_pc = avr->pc + 2;	// future "default" pc
 	int 			cycle = 1;
 
@@ -648,16 +675,15 @@ run_one_again:
 									uint8_t d = ((opcode >> 4) & 0xf) << 1;
 									uint8_t r = ((opcode) & 0xf) << 1;
 									STATE("movw %s:%s, %s:%s[%02x%02x]\n", avr_regname(d), avr_regname(d+1), avr_regname(r), avr_regname(r+1), avr->data[r+1], avr->data[r]);
-									_avr_set_r(avr, d, avr->data[r]);
-									_avr_set_r(avr, d+1, avr->data[r+1]);
+									uint16_t vr = avr->data[r] | (avr->data[r + 1] << 8);
+									_avr_set_r16le(avr, d, vr);
 								}	break;
 								case 0x0200: {	// MULS -- Multiply Signed -- 0000 0010 dddd rrrr
 									int8_t r = 16 + (opcode & 0xf);
 									int8_t d = 16 + ((opcode >> 4) & 0xf);
 									int16_t res = ((int8_t)avr->data[r]) * ((int8_t)avr->data[d]);
 									STATE("muls %s[%d], %s[%02x] = %d\n", avr_regname(d), ((int8_t)avr->data[d]), avr_regname(r), ((int8_t)avr->data[r]), res);
-									_avr_set_r(avr, 0, res);
-									_avr_set_r(avr, 1, res >> 8);
+									_avr_set_r16le(avr, 0, res);
 									avr->sreg[S_C] = (res >> 15) & 1;
 									avr->sreg[S_Z] = res == 0;
 									cycle++;
@@ -696,8 +722,7 @@ run_one_again:
 									}
 									cycle++;
 									STATE("%s %s[%d], %s[%02x] = %d\n", name, avr_regname(d), ((int8_t)avr->data[d]), avr_regname(r), ((int8_t)avr->data[r]), res);
-									_avr_set_r(avr, 0, res);
-									_avr_set_r(avr, 1, res >> 8);
+									_avr_set_r16le(avr, 0, res);
 									avr->sreg[S_C] = c;
 									avr->sreg[S_Z] = res == 0;
 									SREG();
@@ -957,7 +982,7 @@ run_one_again:
 					switch (opcode & 0xfe0f) {
 						case 0x9000: {	// LDS -- Load Direct from Data Space, 32 bits -- 1001 0000 0000 0000
 							get_d5(opcode);
-							uint16_t x = (avr->flash[new_pc+1] << 8) | avr->flash[new_pc];
+							uint16_t x = _avr_flash_read16le(avr, new_pc);
 							new_pc += 2;
 							STATE("lds %s[%02x], 0x%04x\n", avr_regname(d), avr->data[d], x);
 							_avr_set_r(avr, d, _avr_get_ram(avr, x));
@@ -972,8 +997,7 @@ run_one_again:
 							_avr_set_r(avr, d, avr->flash[z]);
 							if (op) {
 								z++;
-								_avr_set_r(avr, R_ZH, z >> 8);
-								_avr_set_r(avr, R_ZL, z);
+								_avr_set_r16le_hl(avr, R_ZL, z);
 							}
 							cycle += 2; // 3 cycles
 						}	break;
@@ -989,8 +1013,7 @@ run_one_again:
 							if (op) {
 								z++;
 								_avr_set_r(avr, avr->rampz, z >> 16);
-								_avr_set_r(avr, R_ZH, z >> 8);
-								_avr_set_r(avr, R_ZL, z);
+								_avr_set_r16le_hl(avr, R_ZL, z);
 							}
 							cycle += 2; // 3 cycles
 						}	break;
@@ -1013,8 +1036,7 @@ run_one_again:
 							if (op == 2) x--;
 							uint8_t vd = _avr_get_ram(avr, x);
 							if (op == 1) x++;
-							_avr_set_r(avr, R_XH, x >> 8);
-							_avr_set_r(avr, R_XL, x);
+							_avr_set_r16le_hl(avr, R_XL, x);
 							_avr_set_r(avr, d, vd);
 						}	break;
 						case 0x920c:
@@ -1028,8 +1050,7 @@ run_one_again:
 							if (op == 2) x--;
 							_avr_set_ram(avr, x, vd);
 							if (op == 1) x++;
-							_avr_set_r(avr, R_XH, x >> 8);
-							_avr_set_r(avr, R_XL, x);
+							_avr_set_r16le_hl(avr, R_XL, x);
 						}	break;
 						case 0x9009:
 						case 0x900a: {	// LD -- Load Indirect from Data using Y -- 1001 000d dddd 10oo
@@ -1041,8 +1062,7 @@ run_one_again:
 							if (op == 2) y--;
 							uint8_t vd = _avr_get_ram(avr, y);
 							if (op == 1) y++;
-							_avr_set_r(avr, R_YH, y >> 8);
-							_avr_set_r(avr, R_YL, y);
+							_avr_set_r16le_hl(avr, R_YL, y);
 							_avr_set_r(avr, d, vd);
 						}	break;
 						case 0x9209:
@@ -1055,12 +1075,11 @@ run_one_again:
 							if (op == 2) y--;
 							_avr_set_ram(avr, y, vd);
 							if (op == 1) y++;
-							_avr_set_r(avr, R_YH, y >> 8);
-							_avr_set_r(avr, R_YL, y);
+							_avr_set_r16le_hl(avr, R_YL, y);
 						}	break;
 						case 0x9200: {	// STS -- Store Direct to Data Space, 32 bits -- 1001 0010 0000 0000
 							get_vd5(opcode);
-							uint16_t x = (avr->flash[new_pc+1] << 8) | avr->flash[new_pc];
+							uint16_t x = _avr_flash_read16le(avr, new_pc);
 							new_pc += 2;
 							STATE("sts 0x%04x, %s[%02x]\n", x, avr_regname(d), vd);
 							cycle++;
@@ -1076,8 +1095,7 @@ run_one_again:
 							if (op == 2) z--;
 							uint8_t vd = _avr_get_ram(avr, z);
 							if (op == 1) z++;
-							_avr_set_r(avr, R_ZH, z >> 8);
-							_avr_set_r(avr, R_ZL, z);
+							_avr_set_r16le_hl(avr, R_ZL, z);
 							_avr_set_r(avr, d, vd);
 						}	break;
 						case 0x9201:
@@ -1090,8 +1108,7 @@ run_one_again:
 							if (op == 2) z--;
 							_avr_set_ram(avr, z, vd);
 							if (op == 1) z++;
-							_avr_set_r(avr, R_ZH, z >> 8);
-							_avr_set_r(avr, R_ZL, z);
+							_avr_set_r16le_hl(avr, R_ZL, z);
 						}	break;
 						case 0x900f: {	// POP -- 1001 000d dddd 1111
 							get_d5(opcode);
@@ -1179,7 +1196,7 @@ run_one_again:
 						case 0x940c:
 						case 0x940d: {	// JMP -- Long Call to sub, 32 bits -- 1001 010a aaaa 110a
 							avr_flashaddr_t a = ((opcode & 0x01f0) >> 3) | (opcode & 1);
-							uint16_t x = (avr->flash[new_pc+1] << 8) | avr->flash[new_pc];
+							uint16_t x = _avr_flash_read16le(avr, new_pc);
 							a = (a << 16) | x;
 							STATE("jmp 0x%06x\n", a);
 							new_pc = a << 1;
@@ -1189,7 +1206,7 @@ run_one_again:
 						case 0x940e:
 						case 0x940f: {	// CALL -- Long Call to sub, 32 bits -- 1001 010a aaaa 111a
 							avr_flashaddr_t a = ((opcode & 0x01f0) >> 3) | (opcode & 1);
-							uint16_t x = (avr->flash[new_pc+1] << 8) | avr->flash[new_pc];
+							uint16_t x = _avr_flash_read16le(avr, new_pc);
 							a = (a << 16) | x;
 							STATE("call 0x%06x\n", a);
 							new_pc += 2;
@@ -1205,8 +1222,7 @@ run_one_again:
 									get_vp2_k6(opcode);
 									uint16_t res = vp + k;
 									STATE("adiw %s:%s[%04x], 0x%02x\n", avr_regname(p), avr_regname(p + 1), vp, k);
-									_avr_set_r(avr, p + 1, res >> 8);
-									_avr_set_r(avr, p, res);
+									_avr_set_r16le_hl(avr, p, res);
 									avr->sreg[S_V] = ((~vp & res) >> 15) & 1;
 									avr->sreg[S_C] = ((~res & vp) >> 15) & 1;
 									_avr_flags_zns16(avr, res);
@@ -1217,8 +1233,7 @@ run_one_again:
 									get_vp2_k6(opcode);
 									uint16_t res = vp - k;
 									STATE("sbiw %s:%s[%04x], 0x%02x\n", avr_regname(p), avr_regname(p + 1), vp, k);
-									_avr_set_r(avr, p + 1, res >> 8);
-									_avr_set_r(avr, p, res);
+									_avr_set_r16le_hl(avr, p, res);
 									avr->sreg[S_V] = ((vp & ~res) >> 15) & 1;
 									avr->sreg[S_C] = ((res & ~vp) >> 15) & 1;
 									_avr_flags_zns16(avr, res);
@@ -1270,8 +1285,7 @@ run_one_again:
 											uint16_t res = vd * vr;
 											STATE("mul %s[%02x], %s[%02x] = %04x\n", avr_regname(d), vd, avr_regname(r), vr, res);
 											cycle++;
-											_avr_set_r(avr, 0, res);
-											_avr_set_r(avr, 1, res >> 8);
+											_avr_set_r16le(avr, 0, res);
 											avr->sreg[S_Z] = res == 0;
 											avr->sreg[S_C] = (res >> 15) & 1;
 											SREG();
