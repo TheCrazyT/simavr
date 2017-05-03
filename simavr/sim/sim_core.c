@@ -109,6 +109,7 @@ void crash(avr_t* avr)
 void crash(avr_t* avr)
 {
 	avr_sadly_crashed(avr, 0);
+
 }
 #endif
 
@@ -123,12 +124,17 @@ _avr_flash_read16le(
 void avr_core_watch_write(avr_t *avr, uint16_t addr, uint8_t v)
 {
 	if (addr > avr->ramend) {
-		AVR_LOG(avr, LOG_ERROR, "CORE: *** Invalid write address PC=%04x SP=%04x O=%04x Address %04x=%02x out of ram\n",
+		AVR_LOG(avr, LOG_ERROR, FONT_RED
+				"CORE: *** Invalid write address "
+				"PC=%04x SP=%04x O=%04x Address %04x=%02x out of ram\n"
+				FONT_DEFAULT,
 				avr->pc, _avr_sp_get(avr), _avr_flash_read16le(avr, avr->pc), addr, v);
 		crash(avr);
 	}
 	if (addr < 32) {
-		AVR_LOG(avr, LOG_ERROR, "CORE: *** Invalid write address PC=%04x SP=%04x O=%04x Address %04x=%02x low registers\n",
+		AVR_LOG(avr, LOG_ERROR, FONT_RED
+				"CORE: *** Invalid write address PC=%04x SP=%04x O=%04x Address %04x=%02x low registers\n"
+				FONT_DEFAULT,
 				avr->pc, _avr_sp_get(avr), _avr_flash_read16le(avr, avr->pc), addr, v);
 		crash(avr);
 	}
@@ -139,7 +145,9 @@ void avr_core_watch_write(avr_t *avr, uint16_t addr, uint8_t v)
 	 * frame and is munching on it's own return address.
 	 */
 	if (avr->trace_data->stack_frame_index > 1 && addr > avr->trace_data->stack_frame[avr->trace_data->stack_frame_index-2].sp) {
-		printf( FONT_RED "%04x : munching stack SP %04x, A=%04x <= %02x\n" FONT_DEFAULT, avr->pc, _avr_sp_get(avr), addr, v);
+		printf( FONT_RED "%04x : munching stack "
+				"SP %04x, A=%04x <= %02x\n" FONT_DEFAULT,
+				avr->pc, _avr_sp_get(avr), addr, v);
 	}
 #endif
 
@@ -153,7 +161,10 @@ void avr_core_watch_write(avr_t *avr, uint16_t addr, uint8_t v)
 uint8_t avr_core_watch_read(avr_t *avr, uint16_t addr)
 {
 	if (addr > avr->ramend) {
-		AVR_LOG(avr, LOG_ERROR, FONT_RED "CORE: *** Invalid read address PC=%04x SP=%04x O=%04x Address %04x out of ram (%04x)\n" FONT_DEFAULT,
+		AVR_LOG(avr, LOG_ERROR, FONT_RED
+				"CORE: *** Invalid read address "
+				"PC=%04x SP=%04x O=%04x Address %04x out of ram (%04x)\n"
+				FONT_DEFAULT,
 				avr->pc, _avr_sp_get(avr), _avr_flash_read16le(avr, avr->pc), addr, avr->ramend);
 		crash(avr);
 	}
@@ -189,7 +200,7 @@ static inline void _avr_set_r(avr_t * avr, uint16_t r, uint8_t v)
 		if (avr->io[io].irq) {
 			avr_raise_irq(avr->io[io].irq + AVR_IOMEM_IRQ_ALL, v);
 			for (int i = 0; i < 8; i++)
-				avr_raise_irq(avr->io[io].irq + i, (v >> i) & 1);				
+				avr_raise_irq(avr->io[io].irq + i, (v >> i) & 1);
 		}
 	} else
 		avr->data[r] = v;
@@ -250,18 +261,18 @@ static inline uint8_t _avr_get_ram(avr_t * avr, uint16_t addr)
 		 * while the core itself uses the "shortcut" array
 		 */
 		READ_SREG_INTO(avr, avr->data[R_SREG]);
-		
+
 	} else if (addr > 31 && addr < 31 + MAX_IOs) {
 		avr_io_addr_t io = AVR_DATA_TO_IO(addr);
-		
+
 		if (avr->io[io].r.c)
 			avr->data[addr] = avr->io[io].r.c(avr, addr, avr->io[io].r.param);
-		
+
 		if (avr->io[io].irq) {
 			uint8_t v = avr->data[addr];
 			avr_raise_irq(avr->io[io].irq + AVR_IOMEM_IRQ_ALL, v);
 			for (int i = 0; i < 8; i++)
-				avr_raise_irq(avr->io[io].irq + i, (v >> i) & 1);				
+				avr_raise_irq(avr->io[io].irq + i, (v >> i) & 1);
 		}
 	}
 	return avr_core_watch_read(avr, addr);
@@ -290,7 +301,7 @@ int _avr_push_addr(avr_t * avr, avr_flashaddr_t addr)
 	uint16_t sp = _avr_sp_get(avr);
 	addr >>= 1;
 	for (int i = 0; i < avr->address_size; i++, addr >>= 8, sp--) {
-		_avr_set_ram(avr, sp, addr);	
+		_avr_set_ram(avr, sp, addr);
 	}
 	_avr_sp_set(avr, sp);
 	return avr->address_size;
@@ -400,7 +411,7 @@ void avr_dump_state(avr_t * avr)
 #define get_vd5_s3_mask(o) \
 		get_vd5_s3(o); \
 		const uint8_t mask = 1 << s;
-		
+
 #define get_vd5_vr5(o) \
 		get_r5(o); \
 		get_d5(o); \
@@ -410,7 +421,7 @@ void avr_dump_state(avr_t * avr)
 		get_d5(o); \
 		get_r5(o); \
 		const uint8_t vr = avr->data[r];
-		
+
 #define get_h4_k8(o) \
 		const uint8_t h = 16 + ((o >> 4) & 0xf); \
 		const uint8_t k = ((o & 0x0f00) >> 4) | (o & 0xf);
@@ -459,7 +470,7 @@ void avr_dump_state(avr_t * avr)
 #define STACK_FRAME_PUSH()\
 	avr->trace_data->stack_frame[avr->trace_data->stack_frame_index].pc = avr->pc;\
 	avr->trace_data->stack_frame[avr->trace_data->stack_frame_index].sp = _avr_sp_get(avr);\
-	avr->trace_data->stack_frame_index++; 
+	avr->trace_data->stack_frame_index++;
 #define STACK_FRAME_POP()\
 	if (avr->trace_data->stack_frame_index > 0) \
 		avr->trace_data->stack_frame_index--;
@@ -591,18 +602,18 @@ static inline int _avr_is_instruction_32_bits(avr_t * avr, avr_flashaddr_t pc)
 
 /*
  * Main opcode decoder
- * 
+ *
  * The decoder was written by following the datasheet in no particular order.
  * As I went along, I noticed "bit patterns" that could be used to factor opcodes
  * However, a lot of these only became apparent later on, so SOME instructions
  * (skip of bit set etc) are compact, and some could use some refactoring (the ALU
  * ones scream to be factored).
  * I assume that the decoder could easily be 2/3 of it's current size.
- * 
- * + It lacks the "extended" XMega jumps. 
+ *
+ * + It lacks the "extended" XMega jumps.
  * + It also doesn't check whether the core it's
  *   emulating is supposed to have the fancy instructions, like multiply and such.
- * 
+ *
  * The number of cycles taken by instruction has been added, but might not be
  * entirely accurate.
  */
@@ -614,7 +625,7 @@ run_one_again:
 	 * this traces spurious reset or bad jumps
 	 */
 	if ((avr->pc == 0 && avr->cycle > 0) || avr->pc >= avr->codeend || _avr_sp_get(avr) > avr->ramend) {
-		avr->trace = 1;
+//		avr->trace = 1;
 		STATE("RESET\n");
 		crash(avr);
 	}
@@ -978,6 +989,14 @@ run_one_again:
 					cycle += 2; // 3 cycles
 					_avr_set_r(avr, 0, avr->flash[z]);
 				}	break;
+				case 0x95d8: {	// ELPM -- Load Program Memory R0 <- (Z) -- 1001 0101 1101 1000
+					if (!avr->rampz)
+						_avr_invalid_opcode(avr);
+					uint32_t z = avr->data[R_ZL] | (avr->data[R_ZH] << 8) | (avr->data[avr->rampz] << 16);
+					STATE("elpm %s, (Z[%02x:%04x])\n", avr_regname(0), z >> 16, z & 0xffff);
+					_avr_set_r(avr, 0, avr->flash[z]);
+					cycle += 2; // 3 cycles
+				}	break;
 				default:  {
 					switch (opcode & 0xfe0f) {
 						case 0x9000: {	// LDS -- Load Direct from Data Space, 32 bits -- 1001 0000 0000 0000
@@ -1124,7 +1143,7 @@ run_one_again:
 							STATE("push %s[%02x] (@%04x)\n", avr_regname(d), vd, sp);
 							cycle++;
 						}	break;
-						case 0x9400: {	// COM -- One’s Complement -- 1001 010d dddd 0000
+						case 0x9400: {	// COM -- One's Complement -- 1001 010d dddd 0000
 							get_vd5(opcode);
 							uint8_t res = 0xff - vd;
 							STATE("com %s[%02x] = %02x\n", avr_regname(d), vd, res);
@@ -1133,7 +1152,7 @@ run_one_again:
 							avr->sreg[S_C] = 1;
 							SREG();
 						}	break;
-						case 0x9401: {	// NEG -- Two’s Complement -- 1001 010d dddd 0001
+						case 0x9401: {	// NEG -- Two's Complement -- 1001 010d dddd 0001
 							get_vd5(opcode);
 							uint8_t res = 0x00 - vd;
 							STATE("neg %s[%02x] = %02x\n", avr_regname(d), vd, res);
@@ -1318,7 +1337,7 @@ run_one_again:
 		case 0xc000: {	// RJMP -- 1100 kkkk kkkk kkkk
 			get_o12(opcode);
 			STATE("rjmp .%d [%04x]\n", o >> 1, new_pc + o);
-			new_pc = new_pc + o;
+			new_pc = (new_pc + o) % (avr->flashend+1);
 			cycle++;
 			TRACE_JUMP();
 		}	break;
@@ -1327,7 +1346,7 @@ run_one_again:
 			get_o12(opcode);
 			STATE("rcall .%d [%04x]\n", o >> 1, new_pc + o);
 			cycle += _avr_push_addr(avr, new_pc);
-			new_pc = new_pc + o;
+			new_pc = (new_pc + o) % (avr->flashend+1);
 			// 'rcall .1' is used as a cheap "push 16 bits of room on the stack"
 			if (o != 0) {
 				TRACE_JUMP();
@@ -1401,16 +1420,16 @@ run_one_again:
 
 	}
 	avr->cycle += cycle;
-	
-	if ((avr->state == cpu_Running) && 
-		(avr->run_cycle_count > cycle) && 
+
+	if ((avr->state == cpu_Running) &&
+		(avr->run_cycle_count > cycle) &&
 		(avr->interrupt_state == 0))
 	{
 		avr->run_cycle_count -= cycle;
 		avr->pc = new_pc;
 		goto run_one_again;
 	}
-	
+
 	return new_pc;
 }
 
